@@ -19,23 +19,27 @@ jobs:
           distribution: temurin
           java-version: 21
 
-      - name: Setup Fabric example template
+      - name: Setup Fabric template safely
         run: |
-          rm -rf .gradle gradle gradlew gradlew.bat build src/main/java/com/example src/main/resources/assets/example
-          curl -sSL https://github.com/FabricMC/fabric-example-mod/archive/refs/heads/main.zip -o fabric-template.zip
+          set -e
+          rm -rf .gradle gradle gradlew gradlew.bat build src/main/java/com/example src/main/resources/assets/example fabric-template.zip fabric-example-mod-main
+          curl -fL --retry 5 --retry-delay 2 -sS "https://github.com/FabricMC/fabric-example-mod/archive/refs/heads/main.zip" -o fabric-template.zip
+          file fabric-template.zip
+          unzip -tq fabric-template.zip
           unzip -q fabric-template.zip
-          cp -rn fabric-example-mod-main/* .
+          cp -rn fabric-example-mod-main/. .
           rm -rf fabric-example-mod-main fabric-template.zip
 
       - name: Configure mod metadata
         run: |
+          mkdir -p src/main/resources
           cat << 'EOF' > src/main/resources/fabric.mod.json
           {
             "schemaVersion": 1,
             "id": "auto-shield",
             "version": "1.0.0",
             "name": "Auto Shield",
-            "description": "Fast automatic hotbar shield swap, block, and return to weapon for 1v1 PvP.",
+            "description": "Responsive hotbar shield swap, quick block on incoming damage, and clean weapon return for 1v1 PvP.",
             "authors": [
               "Ayman"
             ],
@@ -58,6 +62,7 @@ jobs:
 
       - name: Configure mixins
         run: |
+          mkdir -p src/main/resources
           cat << 'EOF' > src/main/resources/auto-shield.mixins.json
           {
             "required": true,
@@ -94,8 +99,12 @@ jobs:
               private int previousSlot = -1;
               private int holdTicks = 0;
               private int returnDelayTicks = 0;
+              private int cooldownTicks = 0;
               private float lastHealth = -1.0f;
               private boolean blockingActive = false;
+
+              // إيقاف الصد التلقائي مؤقتاً إذا كان اللاعب يضغط زر الاستخدام يدوياً (مثل أكل أو استخدام أداة)
+              private boolean manualUseOverride = false;
 
               @Override
               public void onInitializeClient() {
@@ -111,7 +120,8 @@ jobs:
 
               private void onClientTick(MinecraftClient client) {
                   if (client.player == null) {
-                      resetState();
+                      resetAll(client);
+                      lastHealth = -1.0f;
                       return;
                   }
 
@@ -122,28 +132,41 @@ jobs:
                               true
                       );
                       if (!enabled) {
-                          restoreWeapon(client);
-                          resetState();
+                          restoreWeaponAndRelease(client);
                       }
                   }
 
                   float currentHealth = client.player.getHealth();
-                  boolean tookDamage = lastHealth > 0.0f && currentHealth < lastHealth;
+                  boolean healthDropped = lastHealth > 0.0f && currentHealth < lastHealth;
                   lastHealth = currentHealth;
+
+                  if (cooldownTicks > 0) {
+                      cooldownTicks--;
+                  }
 
                   if (!enabled) {
                       return;
                   }
 
-                  if (tookDamage && !blockingActive) {
+                  // إذا كان اللاعب يضغط زر الاستخدام مسبقاً قبل بدء الصد التلقائي، لا نقطع عليه
+                  if (!blockingActive && client.options.useKey.isPressed()) {
+                      manualUseOverride = true;
+                  } else if (!client.options.useKey.isPressed()) {
+                      manualUseOverride = false;
+                  }
+
+                  if (healthDropped && !blockingActive && !manualUseOverride && cooldownTicks == 0) {
+                      int currentSlot = client.player.getInventory().selectedSlot;
                       int shieldSlot = findShieldInHotbar(client);
-                      if (shieldSlot != -1) {
-                          previousSlot = client.player.getInventory().selectedSlot;
+
+                      if (shieldSlot != -1 && shieldSlot != currentSlot) {
+                          previousSlot = currentSlot;
                           client.player.getInventory().selectedSlot = shieldSlot;
                           client.options.useKey.setPressed(true);
                           blockingActive = true;
-                          holdTicks = 4; // مدة صد سريعة ومختصرة حتى لا يعلّق بالهوتبار
-                          returnDelayTicks = 1;
+                          holdTicks = 3;          // استجابة خاطفة وسريعة جداً للـ 1v1
+                          returnDelayTicks = 1;   // تيك واحد فك ضغط قبل الرجوع للسلاح
+                          cooldownTicks = 3;      // منع التبديل المتكرر العشوائي في نفس اللحظة
                       }
                   }
 
@@ -156,8 +179,7 @@ jobs:
                           if (returnDelayTicks > 0) {
                               returnDelayTicks--;
                           } else {
-                              restoreWeapon(client);
-                              resetState();
+                              restoreWeaponAndRelease(client);
                           }
                       }
                   }
@@ -173,10 +195,14 @@ jobs:
                   return -1;
               }
 
-              private void restoreWeapon(MinecraftClient client) {
-                  if (client.player != null && previousSlot >= 0 && previousSlot < 9) {
-                      client.player.getInventory().selectedSlot = previousSlot;
+              private void restoreWeaponAndRelease(MinecraftClient client) {
+                  if (client.player != null) {
+                      client.options.useKey.setPressed(false);
+                      if (previousSlot >= 0 && previousSlot < 9 && previousSlot != client.player.getInventory().selectedSlot) {
+                          client.player.getInventory().selectedSlot = previousSlot;
+                      }
                   }
+                  resetState();
               }
 
               private void resetState() {
@@ -184,6 +210,15 @@ jobs:
                   holdTicks = 0;
                   returnDelayTicks = 0;
                   blockingActive = false;
+              }
+
+              private void resetAll(MinecraftClient client) {
+                  if (client != null && client.options != null) {
+                      client.options.useKey.setPressed(false);
+                  }
+                  cooldownTicks = 0;
+                  manualUseOverride = false;
+                  resetState();
               }
           }
           EOF
@@ -196,4 +231,3 @@ jobs:
         with:
           name: auto-shield-jar
           path: build/libs/*-1.0.0.jar
-          
