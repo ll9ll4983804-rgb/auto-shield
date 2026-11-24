@@ -23,6 +23,20 @@ jobs:
           rm -rf .git src
           mkdir -p src/client/java/com/autoshield src/main/resources
 
+          cat << 'EOF' > settings.gradle
+          pluginManagement {
+            repositories {
+              maven {
+                name = 'Fabric'
+                url = 'https://maven.fabricmc.net/'
+              }
+              mavenCentral()
+              gradlePluginPortal()
+            }
+          }
+          rootProject.name = 'auto-shield'
+          EOF
+
           sed -i 's/^minecraft_version=.*/minecraft_version=26.2/' gradle.properties
           sed -i 's/^loader_version=.*/loader_version=0.20.1/' gradle.properties
           sed -i 's/^fabric_version=.*/fabric_version=0.161.0+26.2/' gradle.properties
@@ -32,7 +46,7 @@ jobs:
           cat << 'EOF' > src/main/resources/fabric.mod.json
           {
             "schemaVersion": 1,
-            "id": "autoshield",
+            "id": "auto-shield",
             "version": "1.0.0",
             "name": "Auto Shield",
             "description": "Fast hotbar shield swap on incoming damage, then returns to your weapon.",
@@ -198,11 +212,11 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew build --no-daemon --stacktrace
-          ls -la build/libs
+          mkdir -p out-jar
+          cp build/libs/auto-shield-1.0.0.jar out-jar/auto-shield-1.0.0.jar 2>/dev/null || cp build/libs/modid-1.0.0.jar out-jar/auto-shield-1.0.0.jar
+          ls -la out-jar
 
       - uses: actions/upload-artifact@v4
         with:
           name: auto-shield-jar
-          path: |
-            ${{ runner.temp }}/tpl/build/libs/*.jar
-            !${{ runner.temp }}/tpl/build/libs/*-sources.jar
+          path: ${{ runner.temp }}/tpl/out-jar/auto-shield-1.0.0.jar
