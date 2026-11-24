@@ -19,27 +19,101 @@ jobs:
           distribution: temurin
           java-version: 21
 
-      - name: Setup Fabric template safely
+      - name: Setup Gradle wrapper
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Create Fabric project files
         run: |
           set -e
-          rm -rf .gradle gradle gradlew gradlew.bat build src/main/java/com/example src/main/resources/assets/example fabric-template.zip fabric-example-mod-main
-          curl -fL --retry 5 --retry-delay 2 -sS "https://github.com/FabricMC/fabric-example-mod/archive/refs/heads/main.zip" -o fabric-template.zip
-          file fabric-template.zip
-          unzip -tq fabric-template.zip
-          unzip -q fabric-template.zip
-          cp -rn fabric-example-mod-main/. .
-          rm -rf fabric-example-mod-main fabric-template.zip
+          mkdir -p src/main/java/com/autoshield src/main/resources
+
+          cat << 'EOF' > settings.gradle
+          pluginManagement {
+            repositories {
+              maven {
+                name = 'Fabric'
+                url = 'https://maven.fabricmc.net/'
+              }
+              gradlePluginPortal()
+            }
+          }
+          rootProject.name = 'auto-shield'
+          EOF
+
+          cat << 'EOF' > gradle.properties
+          org.gradle.jvmargs=-Xmx2G -Dfile.encoding=UTF-8
+          org.gradle.parallel=true
+
+          minecraft_version=1.21.4
+          yarn_mappings=1.21.4+build.8
+          loader_version=0.16.10
+          loom_version=1.9-SNAPSHOT
+          fabric_version=0.119.2+1.21.4
+
+          mod_version=1.0.0
+          maven_group=com.autoshield
+          archives_base_name=auto-shield
+          EOF
+
+          cat << 'EOF' > build.gradle
+          plugins {
+            id 'fabric-loom' version "${loom_version}"
+            id 'maven-publish'
+          }
+
+          version = project.mod_version
+          group = project.maven_group
+
+          base {
+            archivesName = project.archives_base_name
+          }
+
+          repositories {
+            maven { url = 'https://maven.fabricmc.net/' }
+          }
+
+          dependencies {
+            minecraft "com.mojang:minecraft:${project.minecraft_version}"
+            mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+            modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+            modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+          }
+
+          processResources {
+            inputs.property "version", project.version
+            filesMatching("fabric.mod.json") {
+              expand "version": project.version
+            }
+          }
+
+          tasks.withType(JavaCompile).configureEach {
+            it.options.release = 21
+          }
+
+          java {
+            withSourcesJar()
+            sourceCompatibility = JavaVersion.VERSION_21
+            targetCompatibility = JavaVersion.VERSION_21
+          }
+
+          jar {
+            from("LICENSE") {
+              rename { "${it}_${project.base.archivesName.get()}"}
+            }
+          }
+          EOF
+
+          touch LICENSE
 
       - name: Configure mod metadata
         run: |
-          mkdir -p src/main/resources
           cat << 'EOF' > src/main/resources/fabric.mod.json
           {
             "schemaVersion": 1,
             "id": "auto-shield",
-            "version": "1.0.0",
+            "version": "${version}",
             "name": "Auto Shield",
-            "description": "Responsive hotbar shield swap, quick block on incoming damage, and clean weapon return for 1v1 PvP.",
+            "description": "Fast hotbar shield swap, quick block on incoming damage, and clean weapon return for 1v1 PvP.",
             "authors": [
               "Ayman"
             ],
@@ -62,7 +136,6 @@ jobs:
 
       - name: Configure mixins
         run: |
-          mkdir -p src/main/resources
           cat << 'EOF' > src/main/resources/auto-shield.mixins.json
           {
             "required": true,
@@ -78,7 +151,6 @@ jobs:
 
       - name: Write AutoShieldClient.java
         run: |
-          mkdir -p src/main/java/com/autoshield
           cat << 'EOF' > src/main/java/com/autoshield/AutoShieldClient.java
           package com.autoshield;
 
@@ -102,8 +174,6 @@ jobs:
               private int cooldownTicks = 0;
               private float lastHealth = -1.0f;
               private boolean blockingActive = false;
-
-              // إيقاف الصد التلقائي مؤقتاً إذا كان اللاعب يضغط زر الاستخدام يدوياً (مثل أكل أو استخدام أداة)
               private boolean manualUseOverride = false;
 
               @Override
@@ -148,7 +218,6 @@ jobs:
                       return;
                   }
 
-                  // إذا كان اللاعب يضغط زر الاستخدام مسبقاً قبل بدء الصد التلقائي، لا نقطع عليه
                   if (!blockingActive && client.options.useKey.isPressed()) {
                       manualUseOverride = true;
                   } else if (!client.options.useKey.isPressed()) {
@@ -164,9 +233,9 @@ jobs:
                           client.player.getInventory().selectedSlot = shieldSlot;
                           client.options.useKey.setPressed(true);
                           blockingActive = true;
-                          holdTicks = 3;          // استجابة خاطفة وسريعة جداً للـ 1v1
-                          returnDelayTicks = 1;   // تيك واحد فك ضغط قبل الرجوع للسلاح
-                          cooldownTicks = 3;      // منع التبديل المتكرر العشوائي في نفس اللحظة
+                          holdTicks = 3;
+                          returnDelayTicks = 1;
+                          cooldownTicks = 3;
                       }
                   }
 
@@ -224,7 +293,7 @@ jobs:
           EOF
 
       - name: Build jar
-        run: chmod +x gradlew && ./gradlew build --no-daemon
+        run: gradle build --no-daemon
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
