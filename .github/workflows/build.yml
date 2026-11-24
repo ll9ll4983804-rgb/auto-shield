@@ -2,161 +2,56 @@ name: Build Auto Shield
 
 on:
   push:
-    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up JDK 25
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 25
+          java-version: '25'
 
-      - name: Setup Gradle wrapper
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Clean stale loom cache
-        run: rm -rf .gradle/loom-cache ~/.gradle/caches/fabric-loom
-
-      - name: Create Fabric project files
+      - name: Get the official Fabric template and write the mod
         run: |
           set -e
-          mkdir -p src/main/java/com/autoshield src/main/resources
+          git clone --depth 1 https://github.com/FabricMC/fabric-example-mod.git "$RUNNER_TEMP/tpl"
+          cd "$RUNNER_TEMP/tpl"
+          rm -rf .git src
+          mkdir -p src/client/java/com/autoshield src/main/resources
 
-          cat << 'EOF' > settings.gradle
-          pluginManagement {
-            repositories {
-              maven {
-                name = 'Fabric'
-                url = 'https://maven.fabricmc.net/'
-              }
-              gradlePluginPortal()
-            }
-          }
-          rootProject.name = 'auto-shield'
-          EOF
+          sed -i 's/^minecraft_version=.*/minecraft_version=26.2/' gradle.properties
+          sed -i 's/^loader_version=.*/loader_version=0.20.1/' gradle.properties
+          sed -i 's/^fabric_version=.*/fabric_version=0.161.0+26.2/' gradle.properties
+          sed -i 's/^mod_version=.*/mod_version=1.0.0/' gradle.properties
+          sed -i 's/^archives_base_name=.*/archives_base_name=auto-shield/' gradle.properties
 
-          cat << 'EOF' > gradle.properties
-          org.gradle.jvmargs=-Xmx2G -Dfile.encoding=UTF-8
-          org.gradle.parallel=true
-
-          minecraft_version=26.2
-          loader_version=0.20.1
-          loom_version=1.12-SNAPSHOT
-          fabric_version=0.161.0+26.2
-
-          mod_version=1.0.0
-          maven_group=com.autoshield
-          archives_base_name=auto-shield
-          EOF
-
-          cat << 'EOF' > build.gradle
-          plugins {
-            id 'fabric-loom' version "${loom_version}"
-            id 'maven-publish'
-          }
-
-          version = project.mod_version
-          group = project.maven_group
-
-          base {
-            archivesName = project.archives_base_name
-          }
-
-          repositories {
-            maven { url = 'https://maven.fabricmc.net/' }
-            mavenCentral()
-          }
-
-          dependencies {
-            minecraft "com.mojang:minecraft:${project.minecraft_version}"
-            mappings loom.layered {
-              intermediary()
-            }
-            modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
-            modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
-          }
-
-          processResources {
-            inputs.property "version", project.version
-            filesMatching("fabric.mod.json") {
-              expand "version": project.version
-            }
-          }
-
-          tasks.withType(JavaCompile).configureEach {
-            it.options.release = 25
-          }
-
-          java {
-            withSourcesJar()
-            sourceCompatibility = JavaVersion.VERSION_25
-            targetCompatibility = JavaVersion.VERSION_25
-          }
-
-          jar {
-            from("LICENSE") {
-              rename { "${it}_${project.base.archivesName.get()}" }
-            }
-          }
-          EOF
-
-          touch LICENSE
-
-      - name: Configure mod metadata
-        run: |
           cat << 'EOF' > src/main/resources/fabric.mod.json
           {
             "schemaVersion": 1,
-            "id": "auto-shield",
-            "version": "${version}",
+            "id": "autoshield",
+            "version": "1.0.0",
             "name": "Auto Shield",
-            "description": "Fast hotbar shield swap, quick block on incoming damage, and clean weapon return for 1v1 PvP.",
-            "authors": [
-              "Ayman"
-            ],
+            "description": "Fast hotbar shield swap on incoming damage, then returns to your weapon.",
+            "authors": ["Ayman"],
             "license": "MIT",
             "environment": "client",
             "entrypoints": {
-              "client": [
-                "com.autoshield.AutoShieldClient"
-              ]
+              "client": ["com.autoshield.AutoShieldClient"]
             },
-            "mixins": [
-              "auto-shield.mixins.json"
-            ],
             "depends": {
-              "fabricloader": ">=0.20.1",
+              "fabricloader": ">=0.19.3",
+              "minecraft": "~26.2",
+              "java": ">=25",
               "fabric-api": "*"
             }
           }
           EOF
 
-      - name: Configure mixins
-        run: |
-          cat << 'EOF' > src/main/resources/auto-shield.mixins.json
-          {
-            "required": true,
-            "minVersion": "0.8",
-            "package": "com.autoshield.mixin",
-            "compatibilityLevel": "JAVA_25",
-            "client": [],
-            "injectors": {
-              "defaultRequire": 1
-            }
-          }
-          EOF
-
-      - name: Write AutoShieldClient.java
-        run: |
-          cat << 'EOF' > src/main/java/com/autoshield/AutoShieldClient.java
+          cat << 'EOF' > src/client/java/com/autoshield/AutoShieldClient.java
           package com.autoshield;
 
           import net.fabricmc.api.ClientModInitializer;
@@ -298,11 +193,16 @@ jobs:
           }
           EOF
 
-      - name: Build jar
-        run: gradle build --no-daemon
+      - name: Build the jar
+        working-directory: ${{ runner.temp }}/tpl
+        run: |
+          chmod +x gradlew
+          ./gradlew build --no-daemon --stacktrace
+          ls -la build/libs
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: auto-shield-jar
-          path: build/libs/*-1.0.0.jar
+          path: |
+            ${{ runner.temp }}/tpl/build/libs/*.jar
+            !${{ runner.temp }}/tpl/build/libs/*-sources.jar
