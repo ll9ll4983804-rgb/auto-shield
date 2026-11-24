@@ -2,18 +2,10 @@ package com.autoshield;
 
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.option.KeyBinding;
-import net.minecraft.client.util.InputUtil;
-import net.minecraft.item.Items;
-import net.minecraft.text.Text;
-import org.lwjgl.glfw.GLFW;
+import net.minecraft.client.Minecraft;
+import net.minecraft.world.item.Items;
 
 public class AutoShieldClient implements ClientModInitializer {
-    private static boolean enabled = true;
-    private static KeyBinding toggleKey;
-
     private int previousSlot = -1;
     private int activeShieldSlot = -1;
     private int holdTicks = 0;
@@ -27,32 +19,14 @@ public class AutoShieldClient implements ClientModInitializer {
 
     @Override
     public void onInitializeClient() {
-        toggleKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.auto-shield.toggle",
-                InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_UNKNOWN,
-                "category.auto-shield"
-        ));
-
         ClientTickEvents.END_CLIENT_TICK.register(this::onClientTick);
     }
 
-    private void onClientTick(MinecraftClient client) {
+    private void onClientTick(Minecraft client) {
         if (client.player == null) {
             fullReset(client);
             lastHealth = -1.0f;
             return;
-        }
-
-        while (toggleKey.wasPressed()) {
-            enabled = !enabled;
-            client.player.sendMessage(
-                    Text.literal("§6[Auto Shield] §fStatus: " + (enabled ? "§aON" : "§cOFF")),
-                    true
-            );
-            if (!enabled) {
-                restoreWeaponNow(client);
-            }
         }
 
         float currentHealth = client.player.getHealth();
@@ -63,34 +37,27 @@ public class AutoShieldClient implements ClientModInitializer {
             cooldownTicks--;
         }
 
-        if (!enabled) {
-            if (blockingActive || releasingActive) {
-                restoreWeaponNow(client);
-            }
-            return;
-        }
-
-        boolean useKeyCurrentlyPressed = client.options.useKey.isPressed();
+        boolean useKeyCurrentlyPressed = client.options.keyUse.isDown();
 
         if (!blockingActive && !releasingActive) {
             manualUseHeldBeforeBlock = useKeyCurrentlyPressed;
         }
 
         if (tookDamage && !blockingActive && !releasingActive && !manualUseHeldBeforeBlock && cooldownTicks == 0) {
-            int currentSlot = client.player.getInventory().selectedSlot;
+            int currentSlot = client.player.getInventory().getSelectedSlot();
             int shieldSlot = findShieldInHotbar(client);
 
             if (shieldSlot != -1 && shieldSlot != currentSlot) {
                 previousSlot = currentSlot;
                 activeShieldSlot = shieldSlot;
-                client.player.getInventory().selectedSlot = shieldSlot;
-                client.options.useKey.setPressed(true);
+                client.player.getInventory().setSelectedSlot(shieldSlot);
+                client.options.keyUse.setDown(true);
 
                 blockingActive = true;
                 releasingActive = false;
-                holdTicks = 3;      // صد سريع جداً وخاطف للـ 1v1
-                releaseTicks = 1;   // تيك واحد فك قبل الرجوع للسلاح
-                cooldownTicks = 2;  // كولداون خفيف جداً حتى يستجيب للهجمات المتلاحقة
+                holdTicks = 3;
+                releaseTicks = 1;
+                cooldownTicks = 2;
             }
         }
 
@@ -101,15 +68,15 @@ public class AutoShieldClient implements ClientModInitializer {
             }
 
             if (holdTicks > 0) {
-                client.options.useKey.setPressed(true);
+                client.options.keyUse.setDown(true);
                 holdTicks--;
             } else {
-                client.options.useKey.setPressed(false);
+                client.options.keyUse.setDown(false);
                 blockingActive = false;
                 releasingActive = true;
             }
         } else if (releasingActive) {
-            client.options.useKey.setPressed(false);
+            client.options.keyUse.setDown(false);
             if (releaseTicks > 0) {
                 releaseTicks--;
             } else {
@@ -118,32 +85,32 @@ public class AutoShieldClient implements ClientModInitializer {
         }
     }
 
-    private boolean isHoldingShieldSlot(MinecraftClient client) {
+    private boolean isHoldingShieldSlot(Minecraft client) {
         if (client.player == null || activeShieldSlot < 0 || activeShieldSlot >= 9) {
             return false;
         }
-        return client.player.getInventory().selectedSlot == activeShieldSlot
-                && client.player.getInventory().getStack(activeShieldSlot).isOf(Items.SHIELD);
+        return client.player.getInventory().getSelectedSlot() == activeShieldSlot
+                && client.player.getInventory().getItem(activeShieldSlot).is(Items.SHIELD);
     }
 
-    private int findShieldInHotbar(MinecraftClient client) {
+    private int findShieldInHotbar(Minecraft client) {
         if (client.player == null) return -1;
         for (int i = 0; i < 9; i++) {
-            if (client.player.getInventory().getStack(i).isOf(Items.SHIELD)) {
+            if (client.player.getInventory().getItem(i).is(Items.SHIELD)) {
                 return i;
             }
         }
         return -1;
     }
 
-    private void restoreWeaponNow(MinecraftClient client) {
+    private void restoreWeaponNow(Minecraft client) {
         if (client != null) {
             if (client.options != null && !manualUseHeldBeforeBlock) {
-                client.options.useKey.setPressed(false);
+                client.options.keyUse.setDown(false);
             }
             if (client.player != null && previousSlot >= 0 && previousSlot < 9) {
-                if (client.player.getInventory().selectedSlot != previousSlot) {
-                    client.player.getInventory().selectedSlot = previousSlot;
+                if (client.player.getInventory().getSelectedSlot() != previousSlot) {
+                    client.player.getInventory().setSelectedSlot(previousSlot);
                 }
             }
         }
@@ -156,9 +123,9 @@ public class AutoShieldClient implements ClientModInitializer {
         manualUseHeldBeforeBlock = false;
     }
 
-    private void fullReset(MinecraftClient client) {
+    private void fullReset(Minecraft client) {
         if (client != null && client.options != null) {
-            client.options.useKey.setPressed(false);
+            client.options.keyUse.setDown(false);
         }
         previousSlot = -1;
         activeShieldSlot = -1;
