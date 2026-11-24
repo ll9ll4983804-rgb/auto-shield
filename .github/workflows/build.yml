@@ -98,7 +98,7 @@ jobs:
 
           jar {
             from("LICENSE") {
-              rename { "${it}_${project.base.archivesName.get()}"}
+              rename { "${it}_${project.base.archivesName.get()}" }
             }
           }
           EOF
@@ -248,60 +248,6 @@ jobs:
               }
 
               private int findShieldInHotbar(MinecraftClient client) {
-                  if (client.player == null) return -1;
-                  for (int i = 0; i < 9; i++) {
-                      if (client.player.getInventory().getStack(i).isOf(Items.SHIELD)) {
-                          return i;
-                      }
-                  }
-                  return -1;
-              }
-
-              private void restoreWeaponNow(MinecraftClient client) {
-                  if (client != null) {
-                      if (client.options != null && !manualUseHeldBeforeBlock) {
-                          client.options.useKey.setPressed(false);
-                      }
-                      if (client.player != null && previousSlot >= 0 && previousSlot < 9) {
-                          if (client.player.getInventory().selectedSlot != previousSlot) {
-                              client.player.getInventory().selectedSlot = previousSlot;
-                          }
-                      }
-                  }
-                  previousSlot = -1;
-                  activeShieldSlot = -1;
-                  holdTicks = 0;
-                  releaseTicks = 0;
-                  blockingActive = false;
-                  releasingActive = false;
-                  manualUseHeldBeforeBlock = false;
-              }
-
-              private void fullReset(MinecraftClient client) {
-                  if (client != null && client.options != null) {
-                      client.options.useKey.setPressed(false);
-                  }
-                  previousSlot = -1;
-                  activeShieldSlot = -1;
-                  holdTicks = 0;
-                  releaseTicks = 0;
-                  cooldownTicks = 0;
-                  blockingActive = false;
-                  releasingActive = false;
-                  manualUseHeldBeforeBlock = false;
-              }
-          }
-          EOF
-
-      - name: Build jar
-        run: gradle build --no-daemon
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: auto-shield-jar
-          path: build/libs/*-1.0.0.jar
-necraftClient client) {
                   if (client.player == null) return -1;
                   for (int i = 0; i < 9; i++) {
                       if (client.player.getInventory().getStack(i).isOf(Items.SHIELD)) {
