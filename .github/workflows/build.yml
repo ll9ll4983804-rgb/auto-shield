@@ -45,8 +45,9 @@ jobs:
           org.gradle.parallel=true
 
           minecraft_version=26.2
+          yarn_mappings=26.2+build.1
           loader_version=0.20.1
-          loom_version=1.13-SNAPSHOT
+          loom_version=1.12-SNAPSHOT
           fabric_version=0.161.0+26.2
 
           mod_version=1.0.0
@@ -73,7 +74,7 @@ jobs:
 
           dependencies {
             minecraft "com.mojang:minecraft:${project.minecraft_version}"
-            mappings loom.officialMojangMappings()
+            mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
             modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
             modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
           }
@@ -155,8 +156,8 @@ jobs:
 
           import net.fabricmc.api.ClientModInitializer;
           import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-          import net.minecraft.client.Minecraft;
-          import net.minecraft.world.item.Items;
+          import net.minecraft.client.MinecraftClient;
+          import net.minecraft.item.Items;
 
           public class AutoShieldClient implements ClientModInitializer {
               private int previousSlot = -1;
@@ -175,7 +176,7 @@ jobs:
                   ClientTickEvents.END_CLIENT_TICK.register(this::onClientTick);
               }
 
-              private void onClientTick(Minecraft client) {
+              private void onClientTick(MinecraftClient client) {
                   if (client.player == null) {
                       fullReset(client);
                       lastHealth = -1.0f;
@@ -190,21 +191,21 @@ jobs:
                       cooldownTicks--;
                   }
 
-                  boolean useKeyCurrentlyPressed = client.options.keyUse.isDown();
+                  boolean useKeyCurrentlyPressed = client.options.useKey.isPressed();
 
                   if (!blockingActive && !releasingActive) {
                       manualUseHeldBeforeBlock = useKeyCurrentlyPressed;
                   }
 
                   if (tookDamage && !blockingActive && !releasingActive && !manualUseHeldBeforeBlock && cooldownTicks == 0) {
-                      int currentSlot = client.player.getInventory().getSelectedSlot();
+                      int currentSlot = client.player.getInventory().selectedSlot;
                       int shieldSlot = findShieldInHotbar(client);
 
                       if (shieldSlot != -1 && shieldSlot != currentSlot) {
                           previousSlot = currentSlot;
                           activeShieldSlot = shieldSlot;
-                          client.player.getInventory().setSelectedSlot(shieldSlot);
-                          client.options.keyUse.setDown(true);
+                          client.player.getInventory().selectedSlot = shieldSlot;
+                          client.options.useKey.setPressed(true);
 
                           blockingActive = true;
                           releasingActive = false;
@@ -221,15 +222,15 @@ jobs:
                       }
 
                       if (holdTicks > 0) {
-                          client.options.keyUse.setDown(true);
+                          client.options.useKey.setPressed(true);
                           holdTicks--;
                       } else {
-                          client.options.keyUse.setDown(false);
+                          client.options.useKey.setPressed(false);
                           blockingActive = false;
                           releasingActive = true;
                       }
                   } else if (releasingActive) {
-                      client.options.keyUse.setDown(false);
+                      client.options.useKey.setPressed(false);
                       if (releaseTicks > 0) {
                           releaseTicks--;
                       } else {
@@ -238,32 +239,32 @@ jobs:
                   }
               }
 
-              private boolean isHoldingShieldSlot(Minecraft client) {
+              private boolean isHoldingShieldSlot(MinecraftClient client) {
                   if (client.player == null || activeShieldSlot < 0 || activeShieldSlot >= 9) {
                       return false;
                   }
-                  return client.player.getInventory().getSelectedSlot() == activeShieldSlot
-                          && client.player.getInventory().getItem(activeShieldSlot).is(Items.SHIELD);
+                  return client.player.getInventory().selectedSlot == activeShieldSlot
+                          && client.player.getInventory().getStack(activeShieldSlot).isOf(Items.SHIELD);
               }
 
-              private int findShieldInHotbar(Minecraft client) {
+              private int findShieldInHotbar(MinecraftClient client) {
                   if (client.player == null) return -1;
                   for (int i = 0; i < 9; i++) {
-                      if (client.player.getInventory().getItem(i).is(Items.SHIELD)) {
+                      if (client.player.getInventory().getStack(i).isOf(Items.SHIELD)) {
                           return i;
                       }
                   }
                   return -1;
               }
 
-              private void restoreWeaponNow(Minecraft client) {
+              private void restoreWeaponNow(MinecraftClient client) {
                   if (client != null) {
                       if (client.options != null && !manualUseHeldBeforeBlock) {
-                          client.options.keyUse.setDown(false);
+                          client.options.useKey.setPressed(false);
                       }
                       if (client.player != null && previousSlot >= 0 && previousSlot < 9) {
-                          if (client.player.getInventory().getSelectedSlot() != previousSlot) {
-                              client.player.getInventory().setSelectedSlot(previousSlot);
+                          if (client.player.getInventory().selectedSlot != previousSlot) {
+                              client.player.getInventory().selectedSlot = previousSlot;
                           }
                       }
                   }
@@ -276,9 +277,9 @@ jobs:
                   manualUseHeldBeforeBlock = false;
               }
 
-              private void fullReset(Minecraft client) {
+              private void fullReset(MinecraftClient client) {
                   if (client != null && client.options != null) {
-                      client.options.keyUse.setDown(false);
+                      client.options.useKey.setPressed(false);
                   }
                   previousSlot = -1;
                   activeShieldSlot = -1;
